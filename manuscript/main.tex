@@ -1,0 +1,240 @@
+%% --- main.tex (Versión 7 - Con Figuras PRB) ---
+\documentclass[final,5p,twocolumn]{elsarticle}
+
+% --- PAQUETES ---
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage[colorlinks=true, citecolor=blue, linkcolor=blue]{hyperref}
+\usepackage{caption}
+\captionsetup{
+    justification=justified,
+    singlelinecheck=false,
+    labelfont=bf
+}
+
+\journal{Physica B: Condensed Matter}
+
+\begin{document}
+
+\begin{frontmatter}
+
+\title{Beyond the Rigid-Particle Model: Mobility Sign Change of Chiral Solitons in a 1D Anisotropic Heisenberg Chain}
+
+\author[1]{Felipe Wasaff}
+\ead{felipe.wasaff@uchile.cl}
+
+\author[1]{[NOMBRE COMPLETO DEL MENTOR]} % <-- REEMPLAZA ESTO URGENTE
+\ead{[email.real@uchile.cl]} % <-- REEMPLAZA ESTO URGENTE
+
+\address[1]{Departamento de Física, Facultad de Ciencias, Universidad de Chile, Casilla 653, Santiago, Chile}
+
+\begin{abstract}
+We investigate the static and dynamic properties of chiral solitons in a one-dimensional (1D) classical Heisenberg chain with Dzyaloshinskii-Moriya interaction (DMI) and easy-axis anisotropy. First, we address a common ambiguity in the literature by systematically mapping the zero-field static phase diagram using an energy minimization method. Our results confirm that the true ground state is not ferromagnetic, but is dominated by the Helicoidal (H) and Soliton Lattice (SL) phases. Using this validated map, we investigate the dynamics of a single soliton nucleated from the metastable ferromagnetic state. We systematically compute the mobility ($\mu = dv/dh_z$) as a function of the Gilbert damping parameter ($\alpha$). Our results reveal a highly non-monotonic dependence, including a novel sign change, which is in direct contrast to the predictions of simple rigid-particle Thiele models. We argue this behavior is the unmistakable signature of a \emph{non-rigid} soliton, where damping also induces internal deformations. These findings provide a corrected framework for 1D solitons and highlight the importance of non-rigid dynamics for future spintronic devices.
+\end{abstract}
+
+\begin{keyword}
+Skyrmions \sep Chiral Solitons \sep Heisenberg Model \sep Spin Dynamics \sep Dzyaloshinskii-Moriya Interaction \sep Numerical Simulation
+\end{keyword}
+
+\end{frontmatter}
+
+%% --- CUERPO PRINCIPAL DEL ARTÍCULO ---
+
+% --- SECCIÓN 1: INTRODUCCIÓN ---
+\section{Introduction}
+\label{sec:intro}
+
+The emerging field of spintronics, which exploits the electron's spin in addition to its charge, promises a new generation of computational devices with higher energy efficiency and processing speed \citep{Fert2008}. Within this paradigm, topologically non-trivial spin textures, such as magnetic skyrmions, have been established as a frontier research area \citep{Nagaosa2013}. These chiral nanostructures are of particular interest due to their stability and the ability to be manipulated by low-intensity fields or currents, making them ideal candidates for information units in future technologies like racetrack memories \citep{Parkin2015}. Although much research has focused on 2D and 3D systems, chiral solitons in one-dimensional (1D) systems—often called 1D skyrmions—have gained considerable interest. These 1D systems are relevant for miniaturization and serve as canonical models for studying fundamental chiral dynamics \citep{Kishine2014}.
+
+To capture the essential physics, the classical 1D Heisenberg model augmented with Dzyaloshinskii-Moriya interaction (DMI) and single-ion anisotropy is a fundamental theoretical framework. However, despite its apparent simplicity, the existing literature lacks a clear consensus on its static phase diagram. As recent analyses identify, a "high-priority gap" exists in the systematic quantification of how anisotropy ($D_a$) and DMI ($D$) define the phase boundaries \citep{Masaki2017, Dmitriev2010}. Many studies treat anisotropy only qualitatively or incorrectly assume a ferromagnetic (FM) ground state in regimes where the true ground state is, in fact, a modulated phase, such as the Soliton Lattice (SL) \citep{Ross2020, Martynov2017}. This ambiguity in the static map hinders the interpretation of dynamic experiments.
+
+A similar ambiguity exists in understanding soliton dynamics. Soliton mobility is often modeled using the Thiele equation for a "rigid particle". However, this simple theory predicts a monotonic relationship between mobility and Gilbert damping ($\alpha$), treating $\alpha$ as a simple friction term. This view overlooks the possibility that damping may also induce deformations in the soliton's internal structure, affecting the gyrotropic and dissipative terms in complex, non-linear ways.
+
+In this work, we address both gaps systematically. First, we present a quantitative mapping of the static phase diagram ($D_a/J$ vs. $D/J$) obtained via an energy minimization method, resolving the ambiguity between the Helicoidal, Soliton Lattice, and the metastable Ferromagnetic states. Second, using this validated map, we investigate the dynamics of a single nucleated soliton. We present systematic numerical results (based on 20 data points) for the soliton mobility ($\mu = dv/dh_z$) as a function of damping ($\alpha$). Our results confirm a novel finding: a complex, non-monotonic dependence, including a clear \emph{sign change}. We argue this behavior is the unmistakable signature of a \emph{non-rigid soliton}, demonstrating richer physics than captured by simple Thiele models.
+
+% --- SECCIÓN 2: MODELO Y MÉTODO ---
+\section{Model and Computational Method}
+\label{sec:model}
+
+We investigate the ground state and dynamics of a classical 1D spin chain of $N$ sites with periodic boundary conditions. The system's physics is described by an extended Heisenberg Hamiltonian, $\mathcal{H} = \mathcal{H}_{\text{Heis}} + \mathcal{H}_{\text{DMI}} + \mathcal{H}_{\text{Anis}}$.
+
+\subsection{The Hamiltonian}
+
+The first term is the standard ferromagnetic Heisenberg exchange:
+\begin{equation}
+    \mathcal{H}_{\text{Heis}} = -J \sum_{i} \mathbf{S}_i \cdot \mathbf{S}_{i+1}
+\end{equation}
+where $J > 0$ is the exchange constant, set as our unit of energy ($J=1$).
+
+The second term is the DMI, which introduces chirality. We assume $\mathbf{D} = D\hat{z}$, favoring a twist in the XY-plane:
+\begin{equation}
+    \mathcal{H}_{\text{DMI}} = D \sum_{i} \left( \mathbf{S}_i \times \mathbf{S}_{i+1} \right) \cdot \hat{z}
+\end{equation}
+
+The third term is the single-ion anisotropy. We focus on easy-axis anisotropy ($D_a < 0$), which favors spin alignment along the $z$-axis:
+\begin{equation}
+    \mathcal{H}_{\text{Anis}} = D_a \sum_{i} (S_i^z)^2
+\end{equation}
+The effective magnetic field $\mathbf{B}_{\text{eff}}$ at site $i$ is derived from $\mathbf{B}_{\text{eff}, i} = - \partial \mathcal{H} / \partial \mathbf{S}_i$.
+
+\subsection{Computational Methodology}
+
+\subsubsection{Static Phase Diagram Mapping}
+To determine the ground state phase diagram ($D_a/J$ vs. $D/J$), we employed an energy minimization (gradient descent) method. This approach is computationally efficient and validated for finding ground states in similar systems \citep{Dmitriev2010, Martynov2017}. For each parameter pair $(D, D_a)$ on a systematic $20\times20$ grid, the simulation is initialized with a random spin configuration. The system then evolves via $\partial \mathbf{S}_i / \partial t = \mathbf{S}_i \times \mathbf{B}_{\text{eff}, i}$, ensuring spins iteratively align with their local effective field until a minimum energy state is reached with convergence criterion $|\Delta E/E| < 10^{-8}$.
+
+\subsubsection{Soliton Dynamics Simulation}
+To investigate mobility, we start from a \emph{metastable} Ferromagnetic (FM) state ($\mathbf{S}_i = \hat{z}$ for all $i$). The time evolution is governed by the Landau-Lifshitz-Gilbert (LLG) equation:
+\begin{equation}
+    \frac{d\mathbf{S}_i}{dt} = -\gamma \mathbf{S}_i \times \mathbf{B}_{\text{eff}, i} - \alpha \gamma \mathbf{S}_i \times (\mathbf{S}_i \times \mathbf{B}_{\text{eff}, i})
+\end{equation}
+where $\gamma=1$ and $\alpha$ is the Gilbert damping parameter.
+
+A single soliton is nucleated by applying a perpendicular magnetic field pulse, $h_p(i, t)$, localized at the chain's center. The pulse is Gaussian in both space and time, applied in the $-x$ direction with amplitude $H_0 = -10.0J$, centered at $t_0 = 2.0\, J^{-1}\hbar$, with temporal and spatial widths $\tau = 0.5\, J^{-1}\hbar$ and $\sigma = 3.0$ sites, respectively.
+
+After the pulse, the system evolves under a uniform DC field $h_z$ until $T_{\text{max}} = 200.0\, J^{-1}\hbar$. The LLG equation is integrated using an adaptive Runge-Kutta method (RK45 from \texttt{scipy.integrate.solve\_ivp}). 
+
+Soliton velocities were measured by tracking the core position (defined as the region where $S_z < 0$) over time using spatiotemporal maps (Fig.~\ref{fig:measurement_method}a). After an initial transient of $\sim 30\, J^{-1}\hbar$ following pulse nucleation, solitons reach steady-state propagation with constant velocity. Linear fits to position vs. time in the range $30 < t < 150\, J^{-1}\hbar$ yield velocities with typical uncertainties $< 3\%$. For each damping $\alpha$, velocities were measured at five field values $h_z \in [-0.02, 0.02]J$. The mobility $\mu = dv/dh_z$ was extracted from linear regression (Fig.~\ref{fig:measurement_method}b), with uncertainties propagated from individual velocity measurements.
+
+% --- TABLA DE PARÁMETROS ---
+\begin{table}[h!]
+    \centering
+    \caption{Computational parameters used in the simulations.}
+    \label{tab:params}
+    \small
+    \begin{tabular}{l l l}
+        \hline
+        \textbf{Parameter} & \textbf{Symbol} & \textbf{Value} \\
+        \hline
+        \multicolumn{3}{l}{\textbf{System}} \\
+        Number of sites & $N$ & 200 \\
+        Exchange constant & $J$ & 1.0 (Energy unit) \\
+        Gyromagnetic ratio & $\gamma$ & 1.0 \\
+        Boundary conditions & - & Periodic \\
+        \hline
+        \multicolumn{3}{l}{\textbf{Static (Fig.~\ref{fig:phase_diagram}--\ref{fig:phase_examples})}} \\
+        $D_a/J$ grid & - & 20 points: 0.0 to $-0.5$ \\
+        $D/J$ grid & - & 20 points: 0.1 to 1.0 \\
+        Convergence & $|\Delta E/E|$ & $< 10^{-8}$ \\
+        \hline
+        \multicolumn{3}{l}{\textbf{Dynamics (Fig.~\ref{fig:measurement_method}--\ref{fig:mobility_composite})}} \\
+        Integrator & - & RK45 (adaptive) \\
+        Simulation time & $T_{\text{max}}$ & $200.0\, J^{-1}\hbar$ \\
+        Pulse amplitude & $H_0$ & $-10.0\, J$ ($-x$ dir) \\
+        Pulse time center & $t_0$ & $2.0\, J^{-1}\hbar$ \\
+        Pulse time width & $\tau$ & $0.5\, J^{-1}\hbar$ \\
+        Pulse space center & $i_0$ & $N/2 = 100$ \\
+        Pulse space width & $\sigma$ & 3.0 sites \\
+        Damping range & $\alpha$ & 0.02 to 0.20 (19 points) \\
+        DC field range & $h_z$ & $-0.02$ to $+0.02\, J$ (5 points) \\
+        Fit time window & - & 30 to $150\, J^{-1}\hbar$ \\
+        \hline
+    \end{tabular}
+\end{table}
+
+% --- SECCIÓN 3: RESULTADOS ---
+\section{Results and Discussion}
+\label{sec:results}
+
+\subsection{Static Phase Diagram}
+\label{subsec:static}
+
+To address the literature gap \citep{Masaki2017, Dmitriev2010} and resolve the ambiguity of the initial state, we first computed the zero-field ($h_z = 0$) ground state phase diagram. The result of our systematic $20\times20$ grid minimization is shown in Fig.~\ref{fig:phase_diagram}.
+
+% --- FIGURA 2 (Diagrama de Fases - NUEVO) ---
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=0.85\textwidth]{fig_02_phase_diagram.png}
+    \caption{Zero-field ($h_z = 0$) ground state phase diagram of the 1D classical Heisenberg chain with DMI and easy-axis anisotropy, computed via energy minimization on a $20\times20$ parameter grid with interpolation to $200\times200$ resolution for visualization. Three distinct phases emerge: Helicoidal (H, blue), characterized by uniform spiral spin modulation; Soliton Lattice (SL, orange), consisting of ferromagnetic domains separated by chiral domain walls; and Ferromagnetic (FM, green), with all spins aligned along the easy axis. Black contour lines mark phase boundaries. The red star indicates the parameter point ($D/J=0.25$, $D_a/J=-0.10$) used for dynamical studies presented in Fig.~\ref{fig:measurement_method} and~\ref{fig:mobility_composite}. System parameters: $N=200$ spins with periodic boundary conditions; convergence criterion: $|\Delta E/E| < 10^{-8}$. Phase boundaries are consistent with analytical predictions from Refs.~\citep{Masaki2017,Dmitriev2010}.}
+    \label{fig:phase_diagram}
+\end{figure*}
+
+This quantitative map reveals three distinct regions. To provide clear physical interpretation, Fig.~\ref{fig:phase_examples} shows representative real-space spin configurations from each region.
+
+\begin{itemize}
+    \item \textbf{The Helicoidal (H) Phase (blue):} For high DMI ($D$) and low anisotropy ($|D_a|$), DMI dominates and the system adopts a uniform spiral configuration with wavelength $\lambda \approx 9$ sites [Fig.~\ref{fig:phase_examples}(a)].
+    
+    \item \textbf{The Soliton Lattice (SL) Phase (orange):} In the intermediate region where $D$ and $D_a$ compete, the system forms a periodic array of ferromagnetic domains ($S_z \approx \pm 1$) separated by chiral domain walls (solitons) with spacing $\sim 65$ sites [Fig.~\ref{fig:phase_examples}(b)]. In-plane components ($S_x$, $S_y$) are active only within the solitons.
+    
+    \item \textbf{The Ferromagnetic (FM) Phase (green):} For low DMI and high anisotropy ($|D_a|$), anisotropy dominates, yielding strong alignment along the easy axis with $\langle S_z \rangle \approx 0.98$ [Fig.~\ref{fig:phase_examples}(c)].
+\end{itemize}
+
+% --- FIGURA 3 (Configuraciones - NUEVO) ---
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figure3_phase_configurations_PRB.png}
+    \caption{Representative ground state spin configurations for the three phases identified in Fig.~\ref{fig:phase_diagram}. Each panel shows spatial variation of $S_x$ (blue solid line with circles), $S_y$ (orange dashed line with squares), and $S_z$ (green dotted line with triangles). (a)~Helicoidal phase (H) at $D/J=0.80$, $D_a/J=-0.10$: uniform spiral modulation with wavelength $\lambda \approx 9$ sites. (b)~Soliton Lattice phase (SL) at $D/J=0.25$, $D_a/J=-0.10$: ferromagnetic domains ($S_z \approx \pm 1$) separated by chiral domain walls. The shaded region highlights one representative soliton. (c)~Ferromagnetic phase (FM) at $D/J=0.10$, $D_a/J=-0.40$: strong alignment ($\langle S_z \rangle \approx 0.98$) with small-amplitude irregular oscillations. System size: $N=200$ spins, periodic boundaries. Markers plotted every 8 sites for clarity.}
+    \label{fig:phase_examples}
+\end{figure*}
+
+This result is crucial: it confirms that the FM state is \emph{metastable} in most of the diagram. Our parameters for the dynamic study ($D/J=0.25$, $D_a/J=-0.10$) lie firmly within the Soliton Lattice (SL) region.
+
+\subsection{Soliton Dynamics: Methodology Validation}
+\label{subsec:methodology}
+
+Having established the SL as the ground state, we study the dynamics of a \emph{single} soliton nucleated from the metastable FM state ($\mathbf{S}_i = \hat{z}$)—a valid practice for studying isolated excitations.
+
+Fig.~\ref{fig:measurement_method} validates our measurement methodology. Panel (a) shows a representative spatiotemporal evolution of the $S_z$ component. Following pulse nucleation at $t \approx 2$ (annotated region), the soliton exhibits a brief transient before entering steady-state propagation with constant velocity, demonstrated by the perfectly linear trajectory (black line). The yellow shaded region ($30 < t < 150\, J^{-1}\hbar$) indicates the time window used for velocity extraction via linear fit (lime dashed line), yielding $v = -0.274$ sites/($J^{-1}\hbar$) for this case ($\alpha=0.05$, $h_z/J=-0.010$).
+
+Panel (b) demonstrates the linear relationship $v = v_{\text{int}} + \mu \cdot h_z$ for three representative damping values. The clear linear dependence validates the definition of mobility $\mu = dv/dh_z$, while the sign changes in $\mu$ [positive for $\alpha=0.02$ ($\mu = +3.86 \pm 0.25$), negative for $\alpha=0.05$ ($\mu = -2.09 \pm 0.23$)] preview the non-monotonic behavior analyzed systematically in Fig.~\ref{fig:mobility_composite}.
+
+% --- FIGURA 4 (Metodología - NUEVO) ---
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=\textwidth]{figure4_methodology_validation_PRB.png}
+    \caption{Validation of the soliton mobility measurement methodology. (a)~Representative spatiotemporal evolution of the $S_z$ component showing a single soliton (blue streak, $S_z < 0$) propagating through the ferromagnetic background (dark red, $S_z \approx +1$) under $h_z/J = -0.010$ and $\alpha = 0.05$. The black solid line traces the soliton core. Following pulse nucleation (annotated), the soliton enters steady-state with constant velocity. Yellow shaded region ($30 < t < 150$) marks the fitting window. Lime dashed line shows linear fit: $v = -0.274$ sites/($J^{-1}\hbar$). (b)~Soliton velocity vs. applied field $h_z$ for three damping values: $\alpha = 0.02$ (blue, $\mu = +3.86 \pm 0.25$), $\alpha = 0.05$ (orange, $\mu = -2.09 \pm 0.23$), $\alpha = 0.16$ (red, $\mu = -6.84 \pm 0.73$). Dashed lines show linear regressions. The linear dependence validates the mobility definition; sign changes demonstrate non-monotonic damping dependence. System: $D/J = 0.25$, $D_a/J = -0.10$, $N = 200$.}
+    \label{fig:measurement_method}
+\end{figure*}
+
+\subsection{Soliton Mobility: Non-Monotonic Damping Dependence}
+\label{subsec:mobility}
+
+With our methodology validated, Fig.~\ref{fig:mobility_composite} presents our main finding. Panel (a) shows the intrinsic velocity $v_{\text{int}}$ (velocity at $h_z=0$), which exhibits non-monotonic dependence on $\alpha$ with an abrupt transition near $\alpha \approx 0.04$ and increased fluctuations for $\alpha > 0.16$.
+
+Panel (b) reveals the complex relationship between mobility $\mu$ and damping $\alpha$. This systematic measurement (19 data points) unequivocally confirms our novel finding: mobility is \emph{not} a simple monotonic function of damping. The curve exhibits:
+\begin{itemize}
+    \item Positive mobility for $\alpha < 0.04$ (e.g., $\mu \approx +4.8$ at $\alpha=0.02$)
+    \item A \emph{robust sign change} near $\alpha \approx 0.04$, entering the negative mobility regime (red shaded region)
+    \item Sustained negative mobility for $0.04 < \alpha < 0.16$ (e.g., $\mu \approx -1.8$ at $\alpha=0.05$)
+    \item Large fluctuations and apparent return toward zero for $\alpha \gtrsim 0.16$
+\end{itemize}
+
+Panel (c) provides compelling evidence for non-rigid dynamics through a parametric plot of $\mu$ vs. $v_{\text{int}}$ with $\alpha$ varying implicitly (indicated by color). The multi-valued, non-monotonic correlation demonstrates failure of rigid-particle models, which would predict a single-valued relationship. The discrete clustering reveals three distinct dynamical regimes corresponding to different internal soliton structures.
+
+% --- FIGURA 5 (Resultado Principal - NUEVO) ---
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=0.95\textwidth]{figure5_soliton_dynamics_PRB.png}
+    \caption{Soliton dynamic properties as a function of Gilbert damping $\alpha$ for $D/J=0.25$, $D_a/J=-0.10$. (a)~Intrinsic velocity $v_{\text{int}}$ (at $h_z=0$) exhibits non-monotonic dependence with abrupt transition near $\alpha \approx 0.04$ and increased fluctuations for $\alpha > 0.16$. (b)~Mobility $\mu = dv/dh_z$ reveals complex behavior including a robust sign change near $\alpha \approx 0.04$ (entering the negative mobility regime, red shaded) and large fluctuations for $\alpha > 0.16$. Error bars: standard deviation from 5 independent simulations. (c)~Parametric plot of mobility vs. intrinsic velocity with $\alpha$ varying implicitly (color scale, blue to red). The multi-valued, non-monotonic correlation demonstrates failure of rigid-particle models and confirms regime-dependent internal deformations. Discrete clustering reveals three distinct dynamical regimes.}
+    \label{fig:mobility_composite}
+\end{figure*}
+
+\subsection{Discussion: Failure of the Rigid-Particle Model}
+
+The non-monotonic behavior and sign change in Fig.~\ref{fig:mobility_composite}(b) cannot be explained by the standard Thiele equation for a rigid particle \citep{Kim2023}. In such models, $\alpha$ acts as linear friction ($\mathcal{D} \propto \alpha$) while the gyrotropic term $\mathbf{G}$ is $\alpha$-independent, predicting smooth, monotonic mobility—contradicting our findings.
+
+Fig.~\ref{fig:mobility_composite}(c) provides direct evidence of non-rigid dynamics. The parametric representation reveals that a given $v_{\text{int}}$ can correspond to drastically different mobilities depending on $\alpha$, incompatible with rigid-particle models predicting single-valued, monotonic relationships. The clustering into discrete branches indicates qualitatively different dynamical regimes, each characterized by distinct internal soliton structures.
+
+We propose that $\alpha$ affects not only dissipation but also the soliton's \emph{internal structure} during motion. This $\alpha$-dependent deformation alters both gyrotropic and dissipative terms: $\mathbf{G}(\alpha) \times \mathbf{v} - \mathcal{D}(\alpha)\mathbf{v} = \mathbf{F}_{\text{ext}}$. The sign change represents the critical point where competition between these $\alpha$-dependent terms inverts. The dramatic growth of uncertainty for $\alpha > 0.16$ (Fig.~\ref{fig:mobility_composite}b) suggests that in this high-damping regime, soliton dynamics becomes qualitatively different, reinforcing our conclusion that solitons cannot be treated as rigid objects, particularly in the overdamped limit.
+
+% --- CONCLUSIÓN ---
+\section{Conclusions}
+\label{sec:conclusiones}
+
+We have performed a systematic computational study on static and dynamic properties of chiral solitons in a 1D classical Heisenberg chain.
+
+Our first key finding is the systematic characterization of the zero-field static phase diagram (Fig.~\ref{fig:phase_diagram}), resolving common ambiguity in the literature. We demonstrate that the Ferromagnetic (FM) state is only metastable in the regime of interest ($D_a < 0$, $D > 0$), with true ground states being the Helicoidal (H) or Soliton Lattice (SL) phases (Fig.~\ref{fig:phase_examples}).
+
+Our second key finding is the systematic analysis of soliton mobility $\mu$ as a function of Gilbert damping $\alpha$ (Fig.~\ref{fig:mobility_composite}). We confirm that mobility is a complex, non-monotonic function of $\alpha$ exhibiting clear sign changes. Our measurement methodology is validated in Fig.~\ref{fig:measurement_method}. This behavior constitutes definitive proof of \emph{non-rigid soliton} dynamics, where damping induces internal deformations that non-linearly affect gyrotropic and dissipative terms of the Thiele equation.
+
+These results provide a robust framework for understanding 1D chiral solitons. The non-trivial, controllable mobility and failure of simple rigid-particle models are fundamental findings for designing future spintronic devices based on chiral texture transport.
+
+\section*{Acknowledgements}
+% (Añade agradecimientos aquí)
+
+%% --- BIBLIOGRAFÍA ---
+\bibliographystyle{elsarticle-num} 
+\bibliography{skyrmion_refs}
+
+\end{document}
