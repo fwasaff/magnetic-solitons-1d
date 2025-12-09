@@ -67,6 +67,7 @@ results/animations/
 *.toc
 *.pdf
 # Excepto PDFs finales
+!manuscript/*.pdf
 !manuscript/figures/*.pdf
 !manuscript/supplementary/*.pdf
 
