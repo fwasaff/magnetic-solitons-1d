@@ -1,0 +1,80 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Data files (excepto ejemplos pequeños)
+data/raw/*.npz
+data/raw/*.hdf5
+data/processed/*.npz
+data/processed/*.pkl
+*.npy
+
+# Archivos temporales de simulación
+checkpoints/
+temp/
+*.tmp
+*.log
+
+# Archivos grandes de resultados
+results/*.mp4
+results/*.avi
+results/animations/
+
+# LaTeX
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc
+*.pdf
+# Excepto PDFs finales
+!manuscript/figures/*.pdf
+!manuscript/supplementary/*.pdf
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Archivos personales/sensibles
+*secret*
+*password*
+.env

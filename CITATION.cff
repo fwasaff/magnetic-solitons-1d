@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: "Wasaff"
+    given-names: "Felipe"
+    orcid: "https://orcid.org/0000-0000-0000-0000"  # Actualiza con tu ORCID si tienes
+    affiliation: "Universidad de Chile"
+    email: "felipe.wasaff@uchile.cl"
+title: "magnetic-solitons-1d: Computational Framework for 1D Magnetic Solitons"
+version: 1.0.0
+date-released: 2025-12-09
+url: "https://github.com/fwasaff/magnetic-solitons-1d"
+repository-code: "https://github.com/fwasaff/magnetic-solitons-1d"
+keywords:
+  - magnetic-solitons
+  - skyrmions
+  - heisenberg-model
+  - spin-dynamics
+  - computational-physics
+  - spintronics
+license: MIT
