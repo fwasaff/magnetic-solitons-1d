@@ -197,25 +197,100 @@ class HeisenbergChain:
     # Clasificación de fase
     # ------------------------------------------------------------------
 
+    def compute_structure_factor(self, S: np.ndarray) -> tuple:
+        """
+        Calcula el factor de estructura de la componente Sz:
+            S(k) = |FFT(Sz)|² / N
+
+        Cada fase tiene una firma característica en S(k):
+          FM  : pico dominante en k=0 (orden uniforme)
+          H   : pico en k_helix ≈ arctan(D/J)/π (espiral uniforme)
+          SL  : pico en k_SL < k_helix (red con periodo mayor)
+
+        Devuelve
+        --------
+        k_vals : np.ndarray  Vectores de onda en unidades de 2π/a.
+        S_k    : np.ndarray  Potencia espectral normalizada.
+        k_peak : float       k del pico dominante (excluyendo k=0).
+        """
+        sz = S[:, 2]
+        fft_vals = np.fft.rfft(sz)
+        S_k    = np.abs(fft_vals) ** 2 / self.N
+        k_vals = np.fft.rfftfreq(self.N) * 2 * np.pi  # unidades: 2π/a
+
+        # Pico dominante excluyendo el modo DC (k=0)
+        S_k_ac = S_k[1:]
+        k_peak = k_vals[1:][np.argmax(S_k_ac)]
+
+        return k_vals, S_k, k_peak
+
     @validate_spins
     def classify_phase(self, S: np.ndarray) -> str:
         """
         Clasifica la fase magnética: 'FM', 'H' o 'SL'.
 
-        Criterios basados en estadísticos de la componente Sz:
-          FM  : ⟨Sz⟩ > 0.95   (ferromagnético, bien alineado)
-          H   : std(Sz) < 0.45 (helicoidal, oscilaciones suaves)
-          SL  : resto           (red de solitones, paredes quirales)
+        Criterio combinado: estadísticos de Sz + factor de estructura S(k).
+
+        Lógica:
+          1. FM  : ⟨Sz⟩ > 0.95  →  espines bien alineados en z.
+          2. H   : S(k=0) domina sobre el espectro AC  →  Sz ≈ 0,
+                   sin estructura periódica detectada.
+          3. SL  : pico AC significativo en S(k≠0)  →  paredes de dominio.
+
+        El ratio potencia_AC / potencia_DC es el discriminante más robusto
+        que los umbrales puros de media/desviación, ya que no depende de
+        la convención de signo del estado fundamental.
+
+        Devuelve
+        --------
+        str : 'FM', 'H' o 'SL'
         """
         sz_mean = np.mean(S[:, 2])
-        sz_std  = np.std(S[:, 2])
+        _, S_k, _ = self.compute_structure_factor(S)
+
+        # Potencia en DC (k=0) vs máximo del espectro AC (k≠0)
+        power_dc = S_k[0]
+        power_ac_max = S_k[1:].max()
+        # Ratio: cuánto peso tiene la estructura periódica respecto al uniforme
+        ac_dc_ratio = power_ac_max / (power_dc + 1e-12)
 
         if sz_mean > 0.95:
             return "FM"
-        elif sz_std < 0.45:
+        elif ac_dc_ratio < 0.05:
+            # El espectro AC es < 5% del DC → sin estructura periódica → Helicoidal
             return "H"
         else:
             return "SL"
+
+    def phase_diagnostics(self, S: np.ndarray) -> dict:
+        """
+        Devuelve un diccionario con todos los indicadores usados para
+        clasificar la fase. Útil para validar la clasificación y para
+        las figuras de diagnóstico del árbitro.
+
+        Devuelve
+        --------
+        dict con: phase, sz_mean, sz_std, k_peak, ac_dc_ratio
+        """
+        sz = S[:, 2]
+        _, S_k, k_peak = self.compute_structure_factor(S)
+        power_dc    = S_k[0]
+        power_ac    = S_k[1:].max()
+        ac_dc_ratio = power_ac / (power_dc + 1e-12)
+
+        phase = self.classify_phase(S)
+
+        # Vector de onda helicoidal teórico: k_H = arctan(D/J)
+        k_helix_theory = np.arctan(self.D / self.J) / np.pi * 2 * np.pi
+
+        return {
+            'phase':          phase,
+            'sz_mean':        float(np.mean(sz)),
+            'sz_std':         float(np.std(sz)),
+            'k_peak':         float(k_peak),
+            'k_helix_theory': float(k_helix_theory),
+            'ac_dc_ratio':    float(ac_dc_ratio),
+        }
 
 
 # =============================================================================
@@ -369,4 +444,33 @@ class LLGSimulator:
         """
         S0 = np.zeros((self.chain.N, 3))
         S0[:, 2] = 1.0
+        return S0
+
+    def initial_fm_state_with_noise(self, noise_amplitude: float = 0.01) -> np.ndarray:
+        """
+        Estado FM metaestable con pequeñas fluctuaciones térmicas aleatorias.
+
+        Motivación física: un sistema real a temperatura finita no parte de
+        un estado perfectamente polarizado. Las fluctuaciones modifican
+        ligeramente la trayectoria del solitón, generando realizaciones
+        estadísticamente independientes.
+
+        Este es el mecanismo correcto para calcular barras de error en la
+        velocidad y la movilidad (respuesta al árbitro C4).
+
+        Parámetros
+        ----------
+        noise_amplitude : float
+            Amplitud de la perturbación aleatoria (en unidades de |S|=1).
+            Por defecto 0.01 → ≈ 1% del módulo del espín.
+
+        Devuelve
+        --------
+        np.ndarray (N, 3), normalizado (|S_i| = 1).
+        """
+        S0 = np.zeros((self.chain.N, 3))
+        S0[:, 2] = 1.0
+        S0 += noise_amplitude * (np.random.rand(self.chain.N, 3) - 0.5)
+        # Re-normalizar para mantener |S_i| = 1
+        S0 /= np.linalg.norm(S0, axis=1, keepdims=True)
         return S0

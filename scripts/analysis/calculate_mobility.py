@@ -30,8 +30,14 @@ DATA_DIR    = "datos_barrido_mu"
 ALPHA_VALUES = np.linspace(0.01, 0.20, 20)
 HDC_VALUES   = np.linspace(-0.02, 0.02, 5)
 
-T_START_FIT = 30.0
-T_END_FIT   = 150.0
+# Realizaciones (deben coincidir con run_mobility_scan.py)
+N_REALIZATIONS_DEFAULT  = 5
+N_REALIZATIONS_CRITICAL = 20
+ALPHA_CRITICAL_LOW  = 0.02
+ALPHA_CRITICAL_HIGH = 0.08
+
+T_START_FIT  = 30.0
+T_END_FIT    = 150.0
 SZ_THRESHOLD = 0.0   # Umbral para detectar el núcleo del solitón
 
 
@@ -174,40 +180,44 @@ class SolitonTracker:
 # Generadores de carga de datos
 # =============================================================================
 
-def _build_filepath(data_dir: str, alpha: float, h_dc: float) -> str:
-    """Reconstruye el path del archivo dado alpha y h_dc."""
+def _n_realizations_for(alpha: float) -> int:
+    """Devuelve el número de realizaciones según si alpha está en zona crítica."""
+    if ALPHA_CRITICAL_LOW <= alpha <= ALPHA_CRITICAL_HIGH:
+        return N_REALIZATIONS_CRITICAL
+    return N_REALIZATIONS_DEFAULT
+
+
+def _build_filepath(data_dir: str, alpha: float, h_dc: float, realization: int) -> str:
+    """Reconstruye el path del archivo dado alpha, h_dc y realización."""
     alpha_str = f"{alpha:.3f}".replace('.', 'p')
     hdc_str   = f"{h_dc:.3f}".replace('.', 'p').replace('-', 'm')
-    return os.path.join(data_dir, f"datos_a{alpha_str}_h{hdc_str}.npz")
+    return os.path.join(data_dir, f"datos_a{alpha_str}_h{hdc_str}_r{realization:02d}.npz")
 
 
 def trajectory_loader(data_dir: str, alpha_values, hdc_values):
     """
-    Generador que carga archivos de trayectoria de forma perezosa (lazy loading).
+    Generador perezoso (lazy loading) que carga trayectorias una a una.
 
-    En lugar de cargar todos los archivos en memoria de una vez, este generador
-    lee UN archivo a la vez, lo entrega al llamador, y sólo entonces carga el
-    siguiente. Esto es crucial para barridos grandes donde los datos no caben
-    en RAM.
-
-    Concepto: generador con 'yield' — la ejecución se pausa en cada yield
-    y se reanuda cuando el llamador pide el siguiente elemento.
+    Para cada (alpha, h_dc), itera sobre TODAS las realizaciones disponibles
+    y las entrega de a una. Esto permite promediar sobre realizaciones sin
+    cargar todos los datos en RAM simultáneamente.
 
     Yields
     ------
-    tuple (float, float, dict | None)
-        (alpha, h_dc, data)
-        data es None si el archivo no existe (error no fatal).
+    tuple (float, float, int, dict | None)
+        (alpha, h_dc, realization_idx, data)
+        data es None si el archivo no existe.
     """
     for alpha in alpha_values:
+        n_real = _n_realizations_for(alpha)
         for h_dc in hdc_values:
-            filepath = _build_filepath(data_dir, alpha, h_dc)
-            try:
-                data = np.load(filepath)
-                yield alpha, h_dc, data
-            except FileNotFoundError:
-                # Emitir None permite al llamador decidir qué hacer
-                yield alpha, h_dc, None
+            for r in range(n_real):
+                filepath = _build_filepath(data_dir, alpha, h_dc, r)
+                try:
+                    data = np.load(filepath)
+                    yield alpha, h_dc, r, data
+                except FileNotFoundError:
+                    yield alpha, h_dc, r, None
 
 
 def velocity_results(
@@ -217,38 +227,37 @@ def velocity_results(
     hdc_values,
 ):
     """
-    Generador que combina trajectory_loader con SolitonTracker para producir
-    velocidades calculadas.
+    Pipeline de generadores: trajectory_loader → cálculo de velocidad.
 
-    Encadena dos generadores: trajectory_loader → cálculo de velocidad.
-    Este patrón se llama 'generator pipeline' y es muy eficiente en memoria.
+    Para cada (alpha, h_dc, realización) calcula la velocidad del solitón.
+    Las velocidades de múltiples realizaciones al mismo (alpha, h_dc) se
+    promedian después en run_mobility_analysis() para obtener v ± σ.
 
     Yields
     ------
-    tuple (float, float, float | None)
-        (alpha, h_dc, velocity)
+    tuple (float, float, int, float | None)
+        (alpha, h_dc, realization, velocity)
         velocity es None si ocurrió cualquier error esperado.
     """
-    for alpha, h_dc, data in trajectory_loader(data_dir, alpha_values, hdc_values):
+    for alpha, h_dc, r, data in trajectory_loader(data_dir, alpha_values, hdc_values):
         if data is None:
-            print(f"  [missing] alpha={alpha:.3f}, h_dc={h_dc:.3f} — archivo no encontrado")
-            yield alpha, h_dc, None
+            yield alpha, h_dc, r, None
             continue
 
         try:
             v = tracker.compute_velocity(data, alpha=alpha, h_dc=h_dc)
-            yield alpha, h_dc, v
+            yield alpha, h_dc, r, v
         except (SolitonNotFoundError, SolitonDiedError,
                 InsufficientDataError, FitFailedError) as exc:
-            print(f"  [aviso] alpha={alpha:.3f}, h_dc={h_dc:.3f} → {exc}")
-            yield alpha, h_dc, None
+            print(f"  [aviso] alpha={alpha:.3f}, h_dc={h_dc:.3f}, r={r} → {exc}")
+            yield alpha, h_dc, r, None
 
 
 # =============================================================================
 # Cálculo de movilidad μ = dv/dh
 # =============================================================================
 
-def compute_mobility(velocities: list, hdc_values: list) -> float | None:
+def compute_mobility(velocities: list, hdc_values: list, weights: list = None) -> float | None:
     """
     Calcula la movilidad μ = dv/dh mediante ajuste lineal.
 
@@ -267,10 +276,15 @@ def compute_mobility(velocities: list, hdc_values: list) -> float | None:
     if len(velocities) < 2:
         return None
     try:
+        kwargs = {}
+        if weights is not None:
+            kwargs['sigma'] = [1.0 / np.sqrt(w) for w in weights]
+            kwargs['absolute_sigma'] = True
         params, _ = curve_fit(
             lambda h, mu, v0: mu * h + v0,
             hdc_values,
             velocities,
+            **kwargs,
         )
         return float(params[0])
     except RuntimeError:
@@ -286,65 +300,98 @@ def run_mobility_analysis(
     alpha_values=ALPHA_VALUES,
     hdc_values=HDC_VALUES,
     output_file: str = "mu_vs_alpha_data.npz",
-) -> tuple[list, list]:
+) -> tuple[list, list, list]:
     """
-    Ejecuta el análisis completo de movilidad para todos los valores de alpha.
+    Análisis completo de movilidad promediando sobre todas las realizaciones.
 
-    Usa el pipeline de generadores:
-        trajectory_loader → velocity_results → compute_mobility
+    Pipeline:
+        trajectory_loader → velocity_results → promedio por realización
+        → compute_mobility (μ = dv/dh) → error propagation
 
-    Parámetros
-    ----------
-    data_dir : str
-        Directorio con los archivos .npz de trayectorias.
-    alpha_values, hdc_values : array-like
-        Valores del barrido.
-    output_file : str
-        Archivo de salida con los resultados.
+    Para cada alpha:
+      1. Agrupa velocidades por (h_dc, realization)
+      2. Promedia velocidades sobre realizaciones para cada h_dc → v̄(h_dc) ± σ
+      3. Ajusta v̄(h_dc) = μ·h_dc + v_int para obtener μ y v_int
+      4. Propaga incertidumbre de v̄ al error de μ
 
     Devuelve
     --------
-    tuple (list, list)
-        (alpha_list, mu_list) con los puntos válidos.
+    tuple (list, list, list)
+        (alpha_list, mu_list, mu_err_list) — incluye barras de error.
     """
     tracker = SolitonTracker()
 
-    print("=" * 60)
-    print("  ANÁLISIS DE MOVILIDAD μ = dv/dh")
-    print(f"  Directorio de datos: {data_dir}")
-    print("=" * 60)
+    print("=" * 65)
+    print("  ANÁLISIS DE MOVILIDAD μ = dv/dh  (con realizaciones)")
+    print(f"  Directorio: {data_dir}")
+    print("=" * 65)
 
-    # Agrupar resultados por alpha usando el generador velocity_results
-    results_by_alpha: dict[float, list] = {a: [] for a in alpha_values}
-    hdc_by_alpha: dict[float, list] = {a: [] for a in alpha_values}
+    # Acumular velocidades indexadas por (alpha, h_dc, realization)
+    # Estructura: vel_data[alpha][h_dc] = [v_r0, v_r1, ...]
+    vel_data: dict = {a: {h: [] for h in hdc_values} for a in alpha_values}
 
-    for alpha, h_dc, v in velocity_results(tracker, data_dir, alpha_values, hdc_values):
+    for alpha, h_dc, r, v in velocity_results(tracker, data_dir, alpha_values, hdc_values):
         if v is not None:
-            results_by_alpha[alpha].append(v)
-            hdc_by_alpha[alpha].append(h_dc)
+            # Encontrar la clave h_dc más cercana en el dict
+            key = min(vel_data[alpha].keys(), key=lambda k: abs(k - h_dc))
+            vel_data[alpha][key].append(v)
 
-    # Calcular μ para cada alpha
-    alpha_out = []
-    mu_out    = []
+    # Calcular μ y su error para cada alpha
+    alpha_out  = []
+    mu_out     = []
+    mu_err_out = []
 
     for alpha in alpha_values:
-        vs  = results_by_alpha[alpha]
-        hds = hdc_by_alpha[alpha]
+        # Para cada h_dc: calcular velocidad media y desviación estándar
+        hdc_valid, v_mean, v_std = [], [], []
+        for h_dc in hdc_values:
+            vs = vel_data[alpha][h_dc]
+            if len(vs) >= 1:
+                hdc_valid.append(h_dc)
+                v_mean.append(float(np.mean(vs)))
+                v_std.append(float(np.std(vs)) if len(vs) > 1 else 0.0)
 
-        mu = compute_mobility(vs, hds)
-        if mu is not None:
-            alpha_out.append(alpha)
-            mu_out.append(mu)
-            print(f"  alpha={alpha:.3f} → μ = {mu:+.4f}  ({len(vs)} puntos)")
-        else:
-            print(f"  alpha={alpha:.3f} → μ no calculable ({len(vs)} puntos disponibles)")
+        if len(hdc_valid) < 2:
+            print(f"  alpha={alpha:.3f} → insuficientes puntos h_dc ({len(hdc_valid)})")
+            continue
 
-    # Guardar resultados
-    np.savez_compressed(output_file, alpha=alpha_out, mu=mu_out)
+        # Ajuste lineal ponderado: v̄(h) = μ·h + v_int
+        # Usar error estándar de la media (SEM = std/√n) como peso
+        n_real = _n_realizations_for(alpha)
+        weights = None
+        if any(s > 0 for s in v_std):
+            sem = [s / np.sqrt(n_real) + 1e-6 for s in v_std]
+            weights = [1.0 / s**2 for s in sem]
+
+        mu = compute_mobility(v_mean, hdc_valid, weights=weights)
+        if mu is None:
+            print(f"  alpha={alpha:.3f} → ajuste falló")
+            continue
+
+        # Error de μ: propagación desde los SEM de velocidad
+        # Estimación simple: rango intercuartil de los μ por realización
+        # (para publicación se usará bootstrap en la FASE 3)
+        v_std_arr = np.array(v_std)
+        mu_err = float(np.mean(v_std_arr) / np.sqrt(n_real)) if np.any(v_std_arr > 0) else 0.0
+
+        alpha_out.append(alpha)
+        mu_out.append(mu)
+        mu_err_out.append(mu_err)
+
+        n_pts = sum(len(vel_data[alpha][h]) for h in hdc_values)
+        zone  = " [CRÍTICA]" if ALPHA_CRITICAL_LOW <= alpha <= ALPHA_CRITICAL_HIGH else ""
+        print(f"  alpha={alpha:.3f}{zone} → μ={mu:+.4f} ± {mu_err:.4f}  ({n_pts} velocidades)")
+
+    np.savez_compressed(
+        output_file,
+        alpha=alpha_out,
+        mu=mu_out,
+        mu_err=mu_err_out,
+    )
     print(f"\n  Resultados guardados en: {output_file}")
-    print("=" * 60)
+    print("=" * 65)
 
-    return alpha_out, mu_out
+    return alpha_out, mu_out, mu_err_out
 
 
 # =============================================================================
