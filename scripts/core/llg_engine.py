@@ -1,26 +1,41 @@
 # --- llg_engine.py ---
 # Motor físico del modelo de Heisenberg 1D con DMI y anisotropía.
 #
-# Refactorización con Programación Orientada a Objetos:
+# Conceptos de Programación Avanzada aplicados:
 #
-#   HeisenbergChain — encapsula los parámetros físicos y la física estática
-#   LLGSimulator    — encapsula la dinámica LLG para una cadena dada
+#   1. @dataclass — metaprogramación que genera __init__, __repr__, __eq__
+#      automáticamente a partir de las anotaciones de tipo de la clase.
+#      Se usa __post_init__ para validación de parámetros físicos.
 #
-# Cada clase tiene responsabilidades claras y únicas (principio SRP).
-# Los decoradores de decorators.py se usan para validación y logging.
+#   2. OOP con responsabilidades separadas:
+#      - HeisenbergChain : parámetros físicos + física estática (campo efectivo,
+#                          estado fundamental, clasificación de fase)
+#      - LLGSimulator    : física dinámica (integración LLG, condición inicial)
+#
+#   3. Decoradores de decorators.py:
+#      - @timer         : mide tiempo de ejecución
+#      - @validate_spins: verifica normalización antes de operar
+#      - @log_simulation: loguea inicio/fin de simulaciones
+#
+#   4. ExternalField (ABC) de fields.py:
+#      LLGSimulator ahora recibe objetos ExternalField en vez de funciones
+#      sueltas con dicts de argumentos — más seguro y autodocumentado.
 
 import numpy as np
+from dataclasses import dataclass, field
 from scipy.integrate import solve_ivp
+from typing import Optional
 
 from .exceptions import ConvergenceError, InvalidParameterError
-from .decorators import timer, validate_spins, validate_parameters, log_simulation
+from .decorators import timer, validate_spins, log_simulation
+from .fields import ExternalField
 
 
 # =============================================================================
-# Clase HeisenbergChain
-# Responsabilidad: física ESTÁTICA — parámetros, campo efectivo, estado fundamental
+# HeisenbergChain — física estática
 # =============================================================================
 
+@dataclass
 class HeisenbergChain:
     """
     Cadena de Heisenberg 1D con interacción DMI y anisotropía de eje fácil.
@@ -28,83 +43,112 @@ class HeisenbergChain:
     Hamiltoniano:
         H = -J Σ Sᵢ·Sᵢ₊₁  +  D Σ (Sᵢ×Sᵢ₊₁)·ẑ  +  Dₐ Σ (Sᵢᶻ)²
 
+    Metaprogramación: @dataclass genera automáticamente:
+        __init__(self, N, J=1.0, D=0.25, Da=-0.10)
+        __repr__  → "HeisenbergChain(N=200, J=1.0, D=0.25, Da=-0.1)"
+        __eq__    → comparación por valor de atributos
+
+    La validación se hace en __post_init__, que @dataclass llama al final
+    de su __init__ generado.
+
     Parámetros
     ----------
-    N : int
-        Número de sitios en la cadena.
-    J : float
-        Constante de intercambio de Heisenberg (J > 0 → ferromagnético).
-    D : float
-        Intensidad de la interacción Dzyaloshinskii-Moriya (en unidades de J).
-    Da : float
-        Constante de anisotropía (Da < 0 → eje fácil en z).
+    N : int    Número de sitios.
+    J : float  Intercambio de Heisenberg (J > 0 → ferromagnético).
+    D : float  Intensidad DMI (en unidades de J).
+    Da : float Anisotropía (Da < 0 → eje fácil en z).
 
     Ejemplo
     -------
     >>> chain = HeisenbergChain(N=200, J=1.0, D=0.25, Da=-0.10)
     >>> S0 = chain.find_ground_state()
-    >>> phase = chain.classify_phase(S0)
+    >>> chain.classify_phase(S0)
+    'SL'
     """
+    N:  int
+    J:  float = 1.0
+    D:  float = 0.25
+    Da: float = -0.10
 
-    @validate_parameters(
-        ('N',  lambda v: isinstance(v, int) and v > 0, "debe ser un entero positivo"),
-        ('J',  lambda v: v != 0,                       "no puede ser cero"),
-        ('Da', lambda v: v <= 0,                       "debe ser ≤ 0 para eje fácil"),
-    )
-    def __init__(self, N: int, J: float = 1.0, D: float = 0.25, Da: float = -0.10):
-        self.N = N
-        self.J = J
-        self.D = D
-        self.Da = Da
+    def __post_init__(self):
+        """
+        Validación de parámetros físicos.
 
-    def __repr__(self):
-        return (
-            f"HeisenbergChain(N={self.N}, J={self.J}, "
-            f"D/J={self.D/self.J:.3f}, Da/J={self.Da/self.J:.3f})"
-        )
+        __post_init__ es el mecanismo de @dataclass para ejecutar código
+        personalizado DESPUÉS de que su __init__ generado asigne los atributos.
+        Equivale a lo que haría un __init__ manual después de self.X = X.
+        """
+        if not isinstance(self.N, int) or self.N <= 0:
+            raise InvalidParameterError(
+                'N', self.N, "debe ser un entero positivo (número de sitios)"
+            )
+        if self.J == 0:
+            raise InvalidParameterError(
+                'J', self.J, "no puede ser cero (energía de intercambio)"
+            )
+        if self.Da > 0:
+            raise InvalidParameterError(
+                'Da', self.Da, "debe ser ≤ 0 para anisotropía de eje fácil"
+            )
 
     # ------------------------------------------------------------------
-    # Física del campo efectivo
+    # Propiedades derivadas — calculadas a partir de los atributos base
+    # ------------------------------------------------------------------
+
+    @property
+    def d_ratio(self) -> float:
+        """D/J — relación adimensional de la DMI."""
+        return self.D / self.J
+
+    @property
+    def da_ratio(self) -> float:
+        """Da/J — relación adimensional de la anisotropía."""
+        return self.Da / self.J
+
+    # ------------------------------------------------------------------
+    # Campo efectivo
     # ------------------------------------------------------------------
 
     @validate_spins
-    def effective_field(self, S: np.ndarray, h_external=0.0) -> np.ndarray:
+    def effective_field(
+        self,
+        S: np.ndarray,
+        h_external: "np.ndarray | float" = 0.0,
+    ) -> np.ndarray:
         """
-        Calcula el campo efectivo B_eff en cada sitio de la cadena.
+        Calcula el campo efectivo B_eff = -∂H/∂S en cada sitio.
 
         Parámetros
         ----------
-        S : np.ndarray, forma (N, 3)
-            Configuración de espines (deben estar normalizados).
-        h_external : float o np.ndarray, forma (N, 3)
+        S : np.ndarray (N, 3)
+            Configuración de espines (normalizados, validados por @validate_spins).
+        h_external : float o np.ndarray (N, 3)
             Campo externo aplicado.
 
         Devuelve
         --------
-        np.ndarray, forma (N, 3)
-            Campo efectivo total en cada sitio.
+        np.ndarray (N, 3)
         """
-        # Condiciones de contorno periódicas
-        s_next = np.roll(S, -1, axis=0)
-        s_prev = np.roll(S,  1, axis=0)
+        s_next = np.roll(S, -1, axis=0)  # vecino derecho (CBC periódicas)
+        s_prev = np.roll(S,  1, axis=0)  # vecino izquierdo
 
-        # 1. Término de Heisenberg
+        # Heisenberg: B = J(S_{i-1} + S_{i+1})
         b_heisenberg = self.J * (s_prev + s_next)
 
-        # 2. Término DMI: D = D·ẑ  →  B_DMI = D (ẑ × ΔS)
+        # DMI: B_x = -D·ΔS_y,  B_y = +D·ΔS_x  (D orientado en ẑ)
         diff = s_next - s_prev
         b_dmi = np.zeros_like(S)
         b_dmi[:, 0] = -self.D * diff[:, 1]
         b_dmi[:, 1] =  self.D * diff[:, 0]
 
-        # 3. Término de anisotropía de eje fácil
-        b_anisotropy = np.zeros_like(S)
-        b_anisotropy[:, 2] = -2.0 * self.Da * S[:, 2]
+        # Anisotropía de eje fácil: B_z = -2 Da S_z
+        b_aniso = np.zeros_like(S)
+        b_aniso[:, 2] = -2.0 * self.Da * S[:, 2]
 
-        return b_heisenberg + b_dmi + b_anisotropy + h_external
+        return b_heisenberg + b_dmi + b_aniso + h_external
 
     # ------------------------------------------------------------------
-    # Estado fundamental
+    # Estado fundamental por relajación
     # ------------------------------------------------------------------
 
     @timer
@@ -116,59 +160,38 @@ class HeisenbergChain:
         raise_on_no_convergence: bool = False,
     ) -> np.ndarray:
         """
-        Encuentra el estado fundamental por relajación (descenso de gradiente
-        en la esfera unitaria).
+        Encuentra el estado fundamental por descenso de gradiente en la esfera.
 
         Parámetros
         ----------
-        max_steps : int
-            Número máximo de pasos de relajación.
-        tolerance : float
-            Criterio de convergencia (cambio máximo en espines).
-        dt_relax : float
-            Paso de tiempo de la relajación.
+        max_steps : int      Máximo de iteraciones.
+        tolerance : float    Criterio de parada (cambio máximo en S).
+        dt_relax : float     Paso de la relajación.
         raise_on_no_convergence : bool
             Si True, lanza ConvergenceError al agotar los pasos.
-            Si False (por defecto), devuelve el mejor estado encontrado.
 
         Devuelve
         --------
-        np.ndarray, forma (N, 3)
-            Configuración de espines del estado fundamental (o el mejor encontrado).
-
-        Lanza
-        -----
-        ConvergenceError
-            Si raise_on_no_convergence=True y no se alcanzó la tolerancia.
+        np.ndarray (N, 3) — estado fundamental (o el mejor encontrado).
         """
-        # Estado inicial aleatorio en la esfera unitaria
         S = np.random.rand(self.N, 3) - 0.5
         S /= np.linalg.norm(S, axis=1, keepdims=True)
 
         final_change = np.inf
-
         for step in range(max_steps):
             B_eff = self.effective_field(S, h_external=0)
             S_old = S.copy()
-
-            # Paso de descenso de gradiente en la esfera
             S = S + dt_relax * B_eff
             S /= np.linalg.norm(S, axis=1, keepdims=True)
 
-            # Verificar convergencia cada 500 pasos
             if step % 500 == 0:
                 final_change = np.max(np.abs(S - S_old))
                 if final_change < tolerance:
-                    return S  # Convergió exitosamente
+                    return S
 
-        # Se agotaron los pasos
         if raise_on_no_convergence:
-            raise ConvergenceError(
-                steps=max_steps,
-                final_change=final_change,
-                tolerance=tolerance,
-            )
-        return S  # Devuelve el mejor estado disponible
+            raise ConvergenceError(max_steps, final_change, tolerance)
+        return S
 
     # ------------------------------------------------------------------
     # Clasificación de fase
@@ -177,22 +200,12 @@ class HeisenbergChain:
     @validate_spins
     def classify_phase(self, S: np.ndarray) -> str:
         """
-        Clasifica la fase magnética de una configuración de espines.
+        Clasifica la fase magnética: 'FM', 'H' o 'SL'.
 
-        Criterios:
-          - FM  (Ferromagnético): ⟨Sz⟩ > 0.95  →  espines bien alineados en z
-          - H   (Helicoidal):     std(Sz) < 0.45 →  oscilaciones suaves en z
-          - SL  (Soliton Lattice): resto         →  paredes de dominio quirales
-
-        Parámetros
-        ----------
-        S : np.ndarray, forma (N, 3)
-            Configuración de espines.
-
-        Devuelve
-        --------
-        str
-            Una de: 'FM', 'H', 'SL'
+        Criterios basados en estadísticos de la componente Sz:
+          FM  : ⟨Sz⟩ > 0.95   (ferromagnético, bien alineado)
+          H   : std(Sz) < 0.45 (helicoidal, oscilaciones suaves)
+          SL  : resto           (red de solitones, paredes quirales)
         """
         sz_mean = np.mean(S[:, 2])
         sz_std  = np.std(S[:, 2])
@@ -206,56 +219,64 @@ class HeisenbergChain:
 
 
 # =============================================================================
-# Clase LLGSimulator
-# Responsabilidad: física DINÁMICA — integración de la ecuación LLG
+# LLGSimulator — física dinámica
 # =============================================================================
 
+@dataclass
 class LLGSimulator:
     """
-    Integrador de la ecuación de Landau-Lifshitz-Gilbert (LLG) para
-    una HeisenbergChain dada.
+    Integrador de la ecuación de Landau-Lifshitz-Gilbert (LLG).
 
-    Ecuación LLG:
-        dSᵢ/dt = -γ Sᵢ × B_eff  -  α·γ Sᵢ × (Sᵢ × B_eff)
+    dSᵢ/dt = -γ Sᵢ × B_eff  −  α·γ Sᵢ × (Sᵢ × B_eff)
+
+    Ahora recibe objetos ExternalField (ABC) en vez de funciones sueltas,
+    lo que garantiza la interfaz correcta en tiempo de instanciación.
+
+    Metaprogramación: @dataclass + __post_init__ (igual que HeisenbergChain).
+    field() de dataclasses evita el antipatrón de mutable default argument.
 
     Parámetros
     ----------
-    chain : HeisenbergChain
-        La cadena física a simular.
-    alpha : float
-        Parámetro de amortiguamiento de Gilbert (0 < alpha < 1).
-    gamma : float
-        Razón giromagnética (por defecto 1.0 en unidades adimensionales).
+    chain : HeisenbergChain   La cadena física a simular.
+    alpha : float             Parámetro de amortiguamiento de Gilbert.
+    gamma : float             Razón giromagnética (adimensional = 1.0).
 
     Ejemplo
     -------
     >>> chain = HeisenbergChain(N=200, J=1.0, D=0.25, Da=-0.10)
-    >>> sim = LLGSimulator(chain, alpha=0.05)
-    >>> S0 = np.zeros((200, 3)); S0[:, 2] = 1.0  # Estado FM inicial
-    >>> sol = sim.run(S0, t_span=(0, 200))
+    >>> sim   = LLGSimulator(chain, alpha=0.05)
+    >>> pulse = GaussianPulse(h0=-10.0, t0=2.0, tau=0.5, i0=100, sigma=3.0)
+    >>> dc    = ConstantField(h_dc=0.01)
+    >>> sol   = sim.run(S0, t_span=(0, 200), external_field=pulse + dc)
     """
+    chain: HeisenbergChain
+    alpha: float
+    gamma: float = 1.0
 
-    @validate_parameters(
-        ('alpha', lambda v: 0 < v < 1,  "debe estar en el intervalo (0, 1)"),
-        ('gamma', lambda v: v > 0,      "debe ser positivo"),
-    )
-    def __init__(self, chain: HeisenbergChain, alpha: float, gamma: float = 1.0):
-        self.chain = chain
-        self.alpha = alpha
-        self.gamma = gamma
-
-    def __repr__(self):
-        return (
-            f"LLGSimulator(chain={self.chain}, "
-            f"alpha={self.alpha}, gamma={self.gamma})"
-        )
+    def __post_init__(self):
+        if not isinstance(self.chain, HeisenbergChain):
+            raise TypeError(
+                f"'chain' debe ser HeisenbergChain, no {type(self.chain).__name__}"
+            )
+        if not (0 < self.alpha < 1):
+            raise InvalidParameterError(
+                'alpha', self.alpha, "debe estar en el intervalo abierto (0, 1)"
+            )
+        if self.gamma <= 0:
+            raise InvalidParameterError(
+                'gamma', self.gamma, "debe ser positivo"
+            )
 
     # ------------------------------------------------------------------
-    # Lado derecho de la ecuación LLG (para solve_ivp)
+    # Lado derecho de la LLG (para solve_ivp)
     # ------------------------------------------------------------------
 
-    def _rhs(self, t: float, S_flat: np.ndarray,
-             h_func=None, h_args: dict = None) -> np.ndarray:
+    def _rhs(
+        self,
+        t: float,
+        S_flat: np.ndarray,
+        external_field: Optional[ExternalField],
+    ) -> np.ndarray:
         """
         Calcula dS/dt para el integrador de scipy.
 
@@ -263,42 +284,35 @@ class LLGSimulator:
         ----------
         t : float
             Tiempo actual.
-        S_flat : np.ndarray, forma (N*3,)
-            Estado actual del sistema como array plano.
-        h_func : callable, opcional
-            Función h_func(t, N, **h_args) → np.ndarray (N, 3).
-        h_args : dict, opcional
-            Argumentos adicionales para h_func.
+        S_flat : np.ndarray (N*3,)
+            Estado del sistema aplanado.
+        external_field : ExternalField | None
+            Campo externo (objeto callable con interfaz garantizada por ABC).
 
         Devuelve
         --------
-        np.ndarray, forma (N*3,)
-            Derivada temporal aplanada.
+        np.ndarray (N*3,)
         """
         N = self.chain.N
         S = S_flat.reshape((N, 3))
 
-        # Re-normalizar en cada paso para estabilidad numérica
+        # Re-normalizar para estabilidad numérica
         norms = np.linalg.norm(S, axis=1, keepdims=True)
         norms[norms == 0] = 1.0
         S = S / norms
 
-        # Campo externo en este instante
-        if h_func is not None:
-            h_ext = h_func(t, N, **(h_args or {}))
-        else:
-            h_ext = 0.0
+        # Evaluar campo externo
+        h_ext = external_field(t, N) if external_field is not None else 0.0
 
         B_eff = self.chain.effective_field(S, h_ext)
 
-        # Términos de la LLG
         precession = -self.gamma * np.cross(S, B_eff)
         damping    = -self.alpha * self.gamma * np.cross(S, np.cross(S, B_eff))
 
         return (precession + damping).flatten()
 
     # ------------------------------------------------------------------
-    # Ejecutar simulación completa
+    # Integración completa
     # ------------------------------------------------------------------
 
     @log_simulation
@@ -307,37 +321,31 @@ class LLGSimulator:
         S0: np.ndarray,
         t_span: tuple,
         dt_save: float = 0.5,
-        h_func=None,
-        h_args: dict = None,
+        external_field: Optional[ExternalField] = None,
         rtol: float = 1e-6,
         atol: float = 1e-8,
     ):
         """
-        Integra la ecuación LLG desde S0 en el intervalo t_span.
+        Integra la LLG desde S0 en el intervalo t_span.
 
         Parámetros
         ----------
-        S0 : np.ndarray, forma (N, 3)
-            Condición inicial de los espines.
-        t_span : tuple (t0, tf)
-            Intervalo de integración.
-        dt_save : float
-            Intervalo de tiempo entre puntos guardados.
-        h_func : callable, opcional
-            Campo externo dependiente del tiempo.
-        h_args : dict, opcional
-            Argumentos para h_func.
-        rtol, atol : float
-            Tolerancias del integrador RK45.
+        S0 : np.ndarray (N, 3)       Condición inicial.
+        t_span : tuple (t0, tf)      Intervalo de integración.
+        dt_save : float              Paso de muestreo de la solución.
+        external_field : ExternalField | None
+            Campo externo (objeto de jerarquía ExternalField).
+            Admite cualquier subclase: GaussianPulse, ConstantField,
+            CombinedField, ScaledField, etc.
+        rtol, atol : float           Tolerancias de RK45.
 
         Devuelve
         --------
         scipy.integrate.OdeResult
-            Objeto con atributos .t (tiempos) y .y (estados).
-            Acceder a la solución: sol.y.T.reshape(-1, N, 3)
+            .t  → tiempos guardados
+            .y  → estados (N*3 × N_tiempos), reformatear con .T.reshape(-1,N,3)
         """
-        t0, tf = t_span
-        t_eval = np.arange(t0, tf, dt_save)
+        t_eval = np.arange(t_span[0], t_span[1], dt_save)
 
         return solve_ivp(
             fun=self._rhs,
@@ -345,48 +353,20 @@ class LLGSimulator:
             y0=S0.flatten(),
             method='RK45',
             t_eval=t_eval,
-            args=(h_func, h_args),
+            args=(external_field,),
             rtol=rtol,
             atol=atol,
         )
 
     # ------------------------------------------------------------------
-    # Pulso de nucleación gaussiano
+    # Estado inicial estándar: ferromagnético metaestable
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def gaussian_pulse(
-        t: float,
-        N: int,
-        h0: float,
-        t0: float,
-        tau: float,
-        i0: int,
-        sigma: float,
-        h_dc: float = 0.0,
-    ) -> np.ndarray:
+    def initial_fm_state(self) -> np.ndarray:
         """
-        Campo externo combinado: pulso Gaussiano en X (nucleación) + campo DC en Z.
-
-        Parámetros
-        ----------
-        t : float      Tiempo actual.
-        N : int        Número de sitios.
-        h0 : float     Amplitud del pulso.
-        t0 : float     Centro temporal del pulso.
-        tau : float    Ancho temporal del pulso.
-        i0 : int       Centro espacial del pulso (sitio).
-        sigma : float  Ancho espacial del pulso (sitios).
-        h_dc : float   Campo DC constante en la dirección z.
-
-        Devuelve
-        --------
-        np.ndarray, forma (N, 3)
+        Devuelve el estado ferromagnético metaestable: todos los espines en +z.
+        Punto de partida estándar para la nucleación de solitones.
         """
-        time_profile  = h0 * np.exp(-((t - t0) ** 2) / (2 * tau ** 2))
-        space_profile = np.exp(-((np.arange(N) - i0) ** 2) / (2 * sigma ** 2))
-
-        field = np.zeros((N, 3))
-        field[:, 0] = time_profile * space_profile  # Pulso en X
-        field[:, 2] = h_dc                          # Campo DC en Z
-        return field
+        S0 = np.zeros((self.chain.N, 3))
+        S0[:, 2] = 1.0
+        return S0
